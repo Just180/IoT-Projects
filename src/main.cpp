@@ -1,99 +1,104 @@
 #include <WiFi.h>
-#include <HTTPClient.h>
-#include <Arduino_JSON.h>
+#include <WebServer.h>
 
-// Replace with your actual WiFi credentials
-const char* ssid = "iPhone";
-const char* password = "10101010";
+// AP credentials
+const char* ssid = "ESP32_AP";
+const char* password = "12345678";
 
-// Replace with your OpenWeatherMap API key
-String openWeatherMapApiKey = "cfd7f017e1f8e4eeb74be2415f6e7f4e";
+// Web server on port 80
+WebServer server(80);
 
-// City and Country Code
-String city = "Tashkent";
-String countryCode = "UZ";
+// GPIO for LED (optional)
+const int ledPin = 2;
 
-// Timing
-unsigned long lastTime = 0;
-unsigned long timerDelay = 10000; // 10 seconds
-
-String jsonBuffer;
-
-// ========= HTTP GET Request Function =========
-String httpGETRequest(const char* serverName) {
-  WiFiClient client;
-  HTTPClient http;
-
-  http.begin(client, serverName);
-  int httpResponseCode = http.GET();
-
-  String payload = "{}";
-
-  if (httpResponseCode > 0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-    payload = http.getString();
-  } else {
-    Serial.print("Error code: ");
-    Serial.println(httpResponseCode);
-  }
-
-  http.end();
-  return payload;
+void ledON() {
+  digitalWrite(ledPin, HIGH);
+  Serial.println("LED is ON");
 }
 
-// ========= Setup =========
+void ledOFF() {
+  digitalWrite(ledPin, LOW);
+  Serial.println("LED is OFF");
+}
+
+void handleRoot() {
+  String html = "<!DOCTYPE html>\
+  <html>\
+  <head>\
+    <title>ESP32 Web Server</title>\
+    <style>\
+      body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f4; }\
+      h2 { color: #333; }\
+      .button {\
+        display: inline-block;\
+        padding: 15px 30px;\
+        margin: 20px;\
+        font-size: 20px;\
+        cursor: pointer;\
+        text-align: center;\
+        text-decoration: none;\
+        outline: none;\
+        color: #fff;\
+        background-color: #4CAF50;\
+        border: none;\
+        border-radius: 10px;\
+        box-shadow: 0 5px #999;\
+      }\
+      .button:hover { background-color: #45a049; }\
+      .button:active {\
+        background-color: #45a049;\
+        box-shadow: 0 2px #666;\
+        transform: translateY(4px);\
+      }\
+      .off-button { background-color: #f44336; }\
+      .off-button:hover { background-color: #da190b; }\
+    </style>\
+  </head>\
+  <body>\
+    <h2> ESP32 Server is Working!</h2>\
+    <form action=\"/on\" method=\"get\">\
+      <button class=\"button\" type=\"submit\">Turn ON</button>\
+    </form>\
+    <form action=\"/off\" method=\"get\">\
+      <button class=\"button off-button\" type=\"submit\">Turn OFF</button>\
+    </form>\
+  </body>\
+  </html>";
+  
+  server.send(200, "text/html", html);
+}
+
+void handleOn() {
+  ledON();
+  server.sendHeader("Location", "/");
+  server.send(303); // Redirect back to main page
+}
+
+void handleOff() {
+  ledOFF();
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
 void setup() {
   Serial.begin(115200);
+  pinMode(ledPin, OUTPUT);
 
-  WiFi.begin(ssid, password);
-  Serial.println("Connecting to WiFi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.print("Connected! IP: ");
-  Serial.println(WiFi.localIP());
+  // Start AP
+  WiFi.softAP(ssid, password);
 
-  Serial.println("Waiting 10 seconds before first request...");
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
+
+  // Setup routes
+  server.on("/", handleRoot);
+  server.on("/on", handleOn);
+  server.on("/off", handleOff);
+
+  server.begin();
+  Serial.println("HTTP server started");
 }
 
-// ========= Loop =========
 void loop() {
-  if ((millis() - lastTime) > timerDelay) {
-    if (WiFi.status() == WL_CONNECTED) {
-      String serverPath = "http://api.openweathermap.org/data/2.5/weather?q=" + city + "," + countryCode + "&units=metric&APPID=" + openWeatherMapApiKey;
-
-      jsonBuffer = httpGETRequest(serverPath.c_str());
-      Serial.println("Raw JSON:");
-      Serial.println(jsonBuffer);
-
-      JSONVar myObject = JSON.parse(jsonBuffer);
-
-      if (JSON.typeof(myObject) == "undefined") {
-        Serial.println("❌ Failed to parse JSON.");
-        return;
-      }
-
-      Serial.println("✅ Weather Data:");
-      Serial.print("City: ");
-      Serial.println((const char*)myObject["name"]);
-
-      Serial.print("Temperature (°C): ");
-      Serial.println((double)myObject["main"]["temp"]);
-
-      Serial.print("Pressure (hPa): ");
-      Serial.println((int)myObject["main"]["pressure"]);
-
-      Serial.print("Humidity (%): ");
-      Serial.println((int)myObject["main"]["humidity"]);
-
-      Serial.print("Wind Speed (m/s): ");
-      Serial.println((double)myObject["wind"]["speed"]);
-    } else {
-      Serial.println("❌ WiFi Disconnected.");
-    }
-    lastTime = millis();
-  }
+  server.handleClient();
 }
